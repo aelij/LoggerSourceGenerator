@@ -37,9 +37,9 @@ namespace Microsoft.Extensions.Logging.SourceGenerator
     public static class LogValues
     {
         public static LogValues<ValueTuple> Empty { get; } =
-            AsLogValues(ValueTuple.Create(), Array.Empty<string>());
+            FromTuple(ValueTuple.Create(), Array.Empty<string>());
 
-        public static LogValues<T> AsLogValues<T>(in T values, string[] names) where T : struct, ITuple =>
-            new LogValues<T>(values, names);
+        public static LogValues<T> FromTuple<T>(in T values, string[] names) where T : struct, ITuple =>
+            new(values, names);
     }
 }
