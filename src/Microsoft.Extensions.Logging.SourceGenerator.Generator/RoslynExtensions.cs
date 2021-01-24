@@ -1,4 +1,6 @@
 ﻿using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -26,5 +28,9 @@ namespace Microsoft.Extensions.Logging.SourceGenerator.Generator
                 t = t.BaseType;
             }
         }
+
+        public static bool IsPartial(this IMethodSymbol methodSymbol) =>
+            methodSymbol.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() is MethodDeclarationSyntax methodDeclarationSyntax &&
+            methodDeclarationSyntax.Modifiers.Any(s => s.IsKind(SyntaxKind.PartialKeyword));
     }
 }

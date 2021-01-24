@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Microsoft.Extensions.Logging.SourceGenerator
+namespace Microsoft.Extensions.Logging
 {
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Interface, Inherited = false, AllowMultiple = false)]
     public sealed class LoggerAttribute : Attribute

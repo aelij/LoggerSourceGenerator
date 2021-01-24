@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Microsoft.Extensions.Logging.SourceGenerator.Generator
 {
@@ -19,6 +20,8 @@ namespace Microsoft.Extensions.Logging.SourceGenerator.Generator
             category: "Correctness",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        private static readonly Regex s_titleRegex = new(@"((?<!^)(\p{Lu}\p{Ll}|(?<=\p{Ll})\p{Lu}))", RegexOptions.Compiled);
 
         public void Execute(GeneratorExecutionContext context)
         {
@@ -45,17 +48,17 @@ namespace Microsoft.Extensions.Logging.SourceGenerator.Generator
         {
             var builder = new StringBuilder();
             var isInterface = type.TypeKind == TypeKind.Interface;
-            var typeName = type.Name;
-            var loggerName = typeName;
+            var implementationTypeName = type.Name;
+            var loggerName = implementationTypeName;
 
             if (isInterface)
             {
-                if (typeName.StartsWith("I"))
+                if (implementationTypeName.StartsWith("I"))
                 {
-                    loggerName = typeName = typeName.Substring(1);
+                    loggerName = implementationTypeName = implementationTypeName.Substring(1);
                 }
 
-                typeName += "Implementation";
+                implementationTypeName += "Implementation";
             }
 
             var ns = type.ContainingNamespace.ToDisplayString();
@@ -71,7 +74,7 @@ namespace {ns}
     using Microsoft.Extensions.Logging;
     using Microsoft.Extensions.Logging.SourceGenerator;
     
-    {(isInterface ? "internal" : "partial")} class {typeName}");
+    {(isInterface ? "internal" : "partial")} class {implementationTypeName}");
 
             if (isInterface)
             {
@@ -82,22 +85,21 @@ namespace {ns}
     {{
         private readonly ILogger _logger;
 
-        public {typeName}(ILoggerFactory loggerFactory)
+        public {implementationTypeName}(ILoggerFactory loggerFactory)
         {{
-            _logger = loggerFactory.CreateLogger(""{category}"");
+            _logger = loggerFactory.CreateLogger(@""{EscapeVerbatimString(category)}"");
         }}
 ");
             foreach (var member in type.GetMembers())
             {
-                if (member is not IMethodSymbol method ||
-                    method.DeclaredAccessibility != Accessibility.Public ||
-                    method.MethodKind != MethodKind.Ordinary ||
-                    !method.ReturnsVoid)
+                if (member is IMethodSymbol method &&
+                    method.DeclaredAccessibility == Accessibility.Public &&
+                    method.MethodKind == MethodKind.Ordinary &&
+                    (isInterface || method.IsPartial()) &&
+                    method.ReturnsVoid)
                 {
-                    continue;
+                    GenerateMethod(builder, context, method, isInterface);
                 }
-
-                GenerateMethod(builder, context, method, isInterface);
             }
 
             builder.AppendLine(@$"
@@ -111,7 +113,7 @@ namespace Microsoft.Extensions.DependencyInjection
         public static IServiceCollection Add{loggerName}(this IServiceCollection services) =>");
             if (isInterface)
             {
-                builder.Append(@$"            services.AddSingleton<{ns}.{type.Name}, {ns}.{typeName}>();");
+                builder.Append(@$"            services.AddSingleton<{ns}.{type.Name}, {ns}.{implementationTypeName}>();");
             }
             else
             {
@@ -122,7 +124,7 @@ namespace Microsoft.Extensions.DependencyInjection
     }}
 }}
 ");
-            //System.Diagnostics.Debugger.Launch();
+
             return SourceText.From(builder.ToString(), Encoding.UTF8);
         }
 
@@ -161,11 +163,11 @@ namespace Microsoft.Extensions.DependencyInjection
             }
             else if (formattedParameters.Length == 1)
             {
-                builder.Append("LogValues.AsLogValues(System.ValueTuple.Create(");
+                builder.Append("LogValues.FromTuple(System.ValueTuple.Create(");
             }
             else
             {
-                builder.Append("LogValues.AsLogValues((");
+                builder.Append("LogValues.FromTuple((");
             }
 
             AppendItems(builder, formattedParameters, p => p.Name);
@@ -212,14 +214,16 @@ namespace Microsoft.Extensions.DependencyInjection
             // auto-formats log message as {method name}: {arg1 name}={arg1 value}, ...
             void AppendAutoFormat()
             {
+                var methodName = s_titleRegex.Replace(method.Name, " $1");
+
                 if (formattedParameters.Length == 0)
                 {
-                    builder.Append(@$"static (_, _) => ""{method.Name}"");");
+                    builder.Append(@$"static (_, _) => ""{methodName}"");");
                     return;
                 }
 
                 builder.Append(@"static (state, _) => $""");
-                builder.Append(method.Name);
+                builder.Append(methodName);
                 builder.Append(": ");
 
                 if (formattedParameters.Length == 1)
@@ -255,10 +259,10 @@ namespace Microsoft.Extensions.DependencyInjection
                     }
                 }
 
-                var escapedFormat = stringFormat.format.Replace(@"""", @"""""");
+                var escapedFormat = EscapeVerbatimString(stringFormat.format);
                 if (stringFormat.args.Length == 0)
                 {
-                    builder.Append(@$"static (state, _) => ""{escapedFormat}""");
+                    builder.Append(@$"static (state, _) => @""{escapedFormat}""");
                 }
                 else
                 {
@@ -281,6 +285,8 @@ namespace Microsoft.Extensions.DependencyInjection
                 builder.Append(");");
             }
         }
+
+        private static string EscapeVerbatimString(string s) => s.Replace(@"""", @"""""");
 
         private static void AppendItems<T>(StringBuilder builder, IEnumerable<T> items, Func<T, string> formatter, string separator = ", ")
         {
